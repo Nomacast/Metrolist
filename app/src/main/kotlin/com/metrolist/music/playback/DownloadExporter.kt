@@ -12,6 +12,10 @@ package com.metrolist.music.playback
 import android.content.ContentValues
 import android.content.Context
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import android.widget.Toast
 import android.provider.MediaStore
 import androidx.core.net.toUri
 import androidx.media3.common.C
@@ -20,7 +24,6 @@ import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
 import com.metrolist.music.db.MusicDatabase
 import kotlinx.coroutines.flow.first
-import timber.log.Timber
 
 object DownloadExporter {
     private const val FOLDER = "Music/Metrolist"
@@ -28,7 +31,7 @@ object DownloadExporter {
     suspend fun export(context: Context, cache: Cache, database: MusicDatabase, songId: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         runCatching {
-            val song = database.getSongByIdBlocking(songId) ?: return
+            val song = database.getSongByIdBlocking(songId) ?: error("titre introuvable dans la base")
             val mime = database.format(songId).first()?.mimeType ?: "audio/mp4"
             val ext = if (mime.contains("webm")) "webm" else "m4a"
             val artist = song.artists.joinToString(", ") { it.name }.ifBlank { null }
@@ -55,7 +58,7 @@ object DownloadExporter {
                 artist?.let { put(MediaStore.Audio.Media.ARTIST, it) }
                 song.album?.title?.let { put(MediaStore.Audio.Media.ALBUM, it) }
             }
-            val uri = resolver.insert(collection, values) ?: return
+            val uri = resolver.insert(collection, values) ?: error("Android a refusé de créer $name ($mime)")
 
             try {
                 val source = CacheDataSource.Factory().setCache(cache).createDataSourceForDownloading()
@@ -73,11 +76,21 @@ object DownloadExporter {
                     source.close()
                 }
                 resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+                notify(context, "Exporté : $name")
             } catch (t: Throwable) {
                 resolver.delete(uri, null, null) // never leave a half-written file behind
                 throw t
             }
-        }.onFailure { Timber.tag("DownloadExporter").w(it, "Export failed for $songId") }
+        }.onFailure {
+            Log.w("DownloadExporter", "Export failed for $songId", it)
+            notify(context, "Export impossible : ${it.javaClass.simpleName} ${it.message.orEmpty()}".take(200))
+        }
+    }
+
+    // Short on-screen feedback (also visible in `adb logcat -s DownloadExporter`).
+    private fun notify(context: Context, text: String) {
+        Log.i("DownloadExporter", text)
+        Handler(Looper.getMainLooper()).post { Toast.makeText(context, text, Toast.LENGTH_LONG).show() }
     }
 
     private fun sanitize(name: String) =
