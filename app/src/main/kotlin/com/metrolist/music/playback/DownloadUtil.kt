@@ -258,6 +258,7 @@ constructor(
                                 Download.STATE_COMPLETED -> {
                                     removeFromPlayerCache(download.request.id)
                                     database.updateDownloadedInfo(download.request.id, true, LocalDateTime.now())
+                                    DownloadExporter.export(context, downloadCache, database, download.request.id) // Metrolist N
                                 }
                                 Download.STATE_FAILED,
                                 Download.STATE_STOPPED,
