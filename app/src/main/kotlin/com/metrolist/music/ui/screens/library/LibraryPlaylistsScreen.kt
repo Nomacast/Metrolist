@@ -54,6 +54,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.metrolist.innertube.utils.parseCookieString
+import com.metrolist.music.LocalDownloadUtil
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
 import com.metrolist.music.constants.CONTENT_TYPE_HEADER
@@ -111,6 +112,7 @@ fun LibraryPlaylistsScreen(
     allowSyncing: Boolean = true,
 ) {
     val menuState = LocalMenuState.current
+    val downloadUtil = LocalDownloadUtil.current
     val haptic = LocalHapticFeedback.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -366,6 +368,17 @@ fun LibraryPlaylistsScreen(
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.secondary,
             )
+
+            // Nomacast: download all playlists
+            IconButton(
+                onClick = { downloadUtil.downloadAllPlaylists() },
+                modifier = Modifier.padding(start = 8.dp).size(40.dp),
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.download),
+                    contentDescription = stringResource(R.string.action_download),
+                )
+            }
 
             IconButton(
                 onClick = { isSearchActive = true },

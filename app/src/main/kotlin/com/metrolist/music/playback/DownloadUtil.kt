@@ -48,6 +48,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -379,6 +380,17 @@ constructor(
                     }
                 }
             }
+        }
+    }
+
+    // Nomacast: download every song of every library playlist (already-downloaded ones are skipped).
+    fun downloadAllPlaylists() {
+        scope.launch {
+            database.playlistsByCreateDateAsc().first()
+                .flatMap { database.playlistSongsBlocking(it.id) }
+                .map { it.song }
+                .distinctBy { it.id }
+                .forEach { download(it) }
         }
     }
 
