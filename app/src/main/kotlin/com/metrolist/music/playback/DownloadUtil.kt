@@ -383,13 +383,14 @@ constructor(
         }
     }
 
-    // Nomacast: download every song of every library playlist (already-downloaded ones are skipped).
+    // Nomacast: download every song of every library playlist, skipping songs already downloaded or already in Music/Metrolist.
     fun downloadAllPlaylists() {
         scope.launch {
             database.playlistsByCreateDateAsc().first()
                 .flatMap { database.playlistSongsBlocking(it.id) }
                 .map { it.song }
                 .distinctBy { it.id }
+                .filterNot { DownloadExporter.isExported(context, it) }
                 .forEach { download(it) }
         }
     }

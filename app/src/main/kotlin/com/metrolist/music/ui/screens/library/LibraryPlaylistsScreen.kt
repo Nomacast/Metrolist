@@ -5,6 +5,10 @@
 
 package com.metrolist.music.ui.screens.library
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -113,6 +117,11 @@ fun LibraryPlaylistsScreen(
 ) {
     val menuState = LocalMenuState.current
     val downloadUtil = LocalDownloadUtil.current
+    // Nomacast: audio read access lets "download all" see files exported by a previous install
+    val audioPermission =
+        if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
+    val audioPermissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { downloadUtil.downloadAllPlaylists() }
     val haptic = LocalHapticFeedback.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -371,7 +380,7 @@ fun LibraryPlaylistsScreen(
 
             // Nomacast: download all playlists
             IconButton(
-                onClick = { downloadUtil.downloadAllPlaylists() },
+                onClick = { audioPermissionLauncher.launch(audioPermission) },
                 modifier = Modifier.padding(start = 8.dp).size(40.dp),
             ) {
                 Icon(

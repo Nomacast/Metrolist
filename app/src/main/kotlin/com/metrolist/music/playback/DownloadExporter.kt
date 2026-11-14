@@ -26,6 +26,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
 import com.metrolist.music.db.MusicDatabase
+import com.metrolist.music.db.entities.Song
 import kotlinx.coroutines.flow.first
 import java.io.File
 import java.nio.ByteBuffer
@@ -43,19 +44,11 @@ object DownloadExporter {
             val isOpus = database.format(songId).first()?.mimeType?.contains("webm") == true
             val (ext, mime) = if (isOpus) "opus" to "audio/ogg" else "m4a" to "audio/mp4"
             val artist = song.artists.joinToString(", ") { it.name }.ifBlank { null }
-            val name = sanitize(listOfNotNull(artist, song.song.title).joinToString(" - ")) + ".$ext"
+            if (isExported(context, song)) return // keep the existing file
+            val name = baseName(song) + ".$ext"
 
             val resolver = context.contentResolver
             val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-
-            // Already exported (e.g. song downloaded again): keep the existing file.
-            resolver.query(
-                collection,
-                arrayOf(MediaStore.MediaColumns._ID),
-                "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ? AND ${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
-                arrayOf("$FOLDER%", name),
-                null,
-            )?.use { if (it.count > 0) return }
 
             copyFromCache(cache, songId, raw)
             val file = if (isOpus) raw.also { webmToOgg(it, ogg) }.let { ogg } else raw
@@ -82,6 +75,27 @@ object DownloadExporter {
         raw.delete()
         ogg.delete()
     }
+
+    /**
+     * True if Music/Metrolist already holds this song (.m4a or .opus). Files left by a previous
+     * install are only visible with the audio read permission.
+     */
+    fun isExported(context: Context, song: Song): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        val base = baseName(song)
+        return runCatching {
+            context.contentResolver.query(
+                MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ? AND ${MediaStore.MediaColumns.DISPLAY_NAME} IN (?, ?)",
+                arrayOf("$FOLDER%", "$base.m4a", "$base.opus"),
+                null,
+            )?.use { it.count > 0 } ?: false
+        }.getOrDefault(false)
+    }
+
+    private fun baseName(song: Song) =
+        sanitize(listOfNotNull(song.artists.joinToString(", ") { it.name }.ifBlank { null }, song.song.title).joinToString(" - "))
 
     /** Reads the fully downloaded stream for [songId] out of the download cache. */
     private fun copyFromCache(cache: Cache, songId: String, dest: File) {
