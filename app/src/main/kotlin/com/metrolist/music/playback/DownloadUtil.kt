@@ -25,6 +25,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
+import com.metrolist.innertube.utils.completed
 import com.metrolist.innertubex.extraction.ContentHints
 import com.metrolist.music.constants.AudioQuality
 import com.metrolist.music.constants.AudioQualityKey
@@ -38,7 +39,6 @@ import com.metrolist.music.di.PlayerCache
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.utils.InnerTubeXPlayer
-import com.metrolist.music.utils.SyncUtils
 import com.metrolist.music.utils.enumPreference
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -56,6 +56,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
+import android.widget.Toast
 import okhttp3.OkHttpClient
 import timber.log.Timber
 import java.io.IOException
@@ -73,7 +75,6 @@ constructor(
     val databaseProvider: DatabaseProvider,
     @DownloadCache val downloadCache: Cache,
     @PlayerCache val playerCache: Cache,
-    private val syncUtils: SyncUtils,
 ) {
     private val TAG = "DownloadUtil"
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
@@ -385,20 +386,26 @@ constructor(
         }
     }
 
-    // Nomacast: sync then download every song of every library playlist; already-downloaded ones are skipped,
-    // and the exporter never copies a file already in Music/Metrolist.
+    // Nomacast: download every song of every library playlist, fetching YouTube playlists directly so
+    // they don't need to be opened first. Already-downloaded songs are skipped by download(), and the
+    // exporter never copies a file already in Music/Metrolist.
     fun downloadAllPlaylists() {
         scope.launch {
             val playlists = database.playlistsByCreateDateAsc().first()
+            toast("Téléchargement de ${playlists.size} playlists…")
+            val queued = HashSet<String>()
             playlists.forEach { p ->
-                p.playlist.browseId?.let { runCatching { syncUtils.syncPlaylistSuspend(it, p.id) } }
+                val songs = p.playlist.browseId
+                    ?.let { YouTube.playlist(it).completed().getOrNull()?.songs?.map(SongItem::toMediaMetadata) }
+                    ?: database.playlistSongsBlocking(p.id).map { it.song.toMediaMetadata() }
+                songs.filter { queued.add(it.id) }.forEach { download(it) }
             }
-            playlists
-                .flatMap { database.playlistSongsBlocking(it.id) }
-                .map { it.song }
-                .distinctBy { it.id }
-                .forEach { download(it) }
+            toast("${queued.size} titres ajoutés au téléchargement")
         }
+    }
+
+    private suspend fun toast(text: String) = withContext(Dispatchers.Main) {
+        Toast.makeText(context, text, Toast.LENGTH_LONG).show()
     }
 
     fun download(songId: String) {
