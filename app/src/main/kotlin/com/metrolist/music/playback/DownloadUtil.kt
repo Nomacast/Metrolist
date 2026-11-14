@@ -38,6 +38,7 @@ import com.metrolist.music.di.PlayerCache
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.utils.InnerTubeXPlayer
+import com.metrolist.music.utils.SyncUtils
 import com.metrolist.music.utils.enumPreference
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -72,6 +73,7 @@ constructor(
     val databaseProvider: DatabaseProvider,
     @DownloadCache val downloadCache: Cache,
     @PlayerCache val playerCache: Cache,
+    private val syncUtils: SyncUtils,
 ) {
     private val TAG = "DownloadUtil"
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
@@ -383,14 +385,18 @@ constructor(
         }
     }
 
-    // Nomacast: download every song of every library playlist, skipping songs already downloaded or already in Music/Metrolist.
+    // Nomacast: sync then download every song of every library playlist; already-downloaded ones are skipped,
+    // and the exporter never copies a file already in Music/Metrolist.
     fun downloadAllPlaylists() {
         scope.launch {
-            database.playlistsByCreateDateAsc().first()
+            val playlists = database.playlistsByCreateDateAsc().first()
+            playlists.forEach { p ->
+                p.playlist.browseId?.let { runCatching { syncUtils.syncPlaylistSuspend(it, p.id) } }
+            }
+            playlists
                 .flatMap { database.playlistSongsBlocking(it.id) }
                 .map { it.song }
                 .distinctBy { it.id }
-                .filterNot { DownloadExporter.isExported(context, it) }
                 .forEach { download(it) }
         }
     }
