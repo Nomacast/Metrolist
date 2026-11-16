@@ -387,21 +387,31 @@ constructor(
     }
 
     // Nomacast: download every song of every library playlist, fetching YouTube playlists directly so
-    // they don't need to be opened first. Already-downloaded songs are skipped by download(), and the
+    // they don't need to be opened first. Songs already downloaded or queued are skipped, and the
     // exporter never copies a file already in Music/Metrolist.
     fun downloadAllPlaylists() {
+        resumeQueuedDownloads()
         scope.launch {
             val playlists = database.playlistsByCreateDateAsc().first()
             toast("Téléchargement de ${playlists.size} playlists…")
-            val queued = HashSet<String>()
+            val seen = HashSet<String>()
+            var added = 0
             playlists.forEach { p ->
                 val songs = p.playlist.browseId
                     ?.let { YouTube.playlist(it).completed().getOrNull()?.songs?.map(SongItem::toMediaMetadata) }
                     ?: database.playlistSongsBlocking(p.id).map { it.song.toMediaMetadata() }
-                songs.filter { queued.add(it.id) }.forEach { download(it) }
+                songs.filter { seen.add(it.id) && downloads.value[it.id]?.state !in SKIP_STATES }
+                    .forEach { added++; download(it) }
             }
-            toast("${queued.size} titres ajoutés au téléchargement")
+            val pending = downloads.value.values.count { it.state == Download.STATE_QUEUED || it.state == Download.STATE_DOWNLOADING }
+            toast("$added nouveaux titres, ${pending + added} en attente")
         }
+    }
+
+    // Nomacast: restart the download service when queued downloads were left behind (service killed by the OS).
+    fun resumeQueuedDownloads() {
+        if (downloads.value.values.none { it.state == Download.STATE_QUEUED || it.state == Download.STATE_DOWNLOADING }) return
+        runCatching { DownloadService.sendResumeDownloads(context, ExoDownloadService::class.java, true) }
     }
 
     private suspend fun toast(text: String) = withContext(Dispatchers.Main) {
@@ -438,6 +448,8 @@ constructor(
         return false
     }
 }
+
+private val SKIP_STATES = setOf(Download.STATE_COMPLETED, Download.STATE_QUEUED, Download.STATE_DOWNLOADING)
 
 internal fun shouldPrepareDownload(downloadState: Int?): Boolean = downloadState != Download.STATE_COMPLETED
 

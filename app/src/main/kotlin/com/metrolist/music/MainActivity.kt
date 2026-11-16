@@ -401,6 +401,7 @@ class MainActivity : FragmentActivity() {
 
         // Initialize Listen Together manager
         listenTogetherManager.initialize()
+        downloadUtil.resumeQueuedDownloads() // Nomacast
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             val locale =
